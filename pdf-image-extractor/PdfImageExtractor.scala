@@ -49,28 +49,30 @@ object PdfImageExtractor extends CommandIOApp(
     for
       exists <- Files[IO].exists(pdfFile)
       _ <- if !exists then IO.raiseError(new IllegalArgumentException(s"File does not exist: $pdfFile"))
-           else IO.unit
-           
+          else IO.unit
+          
       isPdf <- IO.pure(pdfFile.fileName.toString.toLowerCase.endsWith(".pdf"))
       _ <- if !isPdf then IO.raiseError(new IllegalArgumentException(s"Not a PDF file: $pdfFile"))
-           else IO.unit
+          else IO.unit
       
       baseName = getBaseName(pdfFile)
       
       parent = pdfFile.parent.getOrElse(Path("."))
-      tmpDir = parent / s"${baseName}_TMP_IMAGES"
       finalDir = parent / s"${baseName}_IMAGES"
       
-      _ <- Files[IO].createDirectories(tmpDir)
       _ <- Files[IO].createDirectories(finalDir)
       
-      outputPathPrefix = (tmpDir / baseName).toString
-      imagePaths <- executePdfImagesCommand(pdfFile, outputPathPrefix)
-      
-      _ <- imagePaths.zipWithIndex.parTraverseN(Runtime.getRuntime.availableProcessors()) { 
-        case (filePath, index) => moveExtractedFile(Path(filePath), index, shift, finalDir)
+      result <- Files[IO].tempDirectory.use { tmpDir =>
+        for
+          outputPathPrefix <- (tmpDir / baseName).toString.pure[IO]
+          imagePaths <- executePdfImagesCommand(pdfFile, outputPathPrefix)
+          
+          _ <- imagePaths.zipWithIndex.parTraverseN(Runtime.getRuntime.availableProcessors()) { 
+            case (filePath, index) => moveExtractedFile(Path(filePath), index, shift, finalDir)
+          }
+        yield ()
       }
-    yield ()
+    yield result
 
   def getBaseName(pdfFile: Path): String =
     val fileName = pdfFile.fileName.toString
